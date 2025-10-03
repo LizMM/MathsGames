@@ -27,23 +27,32 @@
       font-family: 'Comic Sans MS', cursive, sans-serif;
       overflow: hidden;
       height: 100vh;
+        }
+    /* Screen visibility controller */
+    .screen { 
+      display: none;
+    }
+    .screen.active { 
+      display: block;
+      position: relative;      /* ensure positioned children behave */
+      width: 100vw;            /* ensure full-viewport sizing */
+      height: 100vh;
     }
 
-    /* Screen visibility */
-    .screen { display: none; /*width: 100vw; height: 100vh; position: relative; */}
-    .screen.active { display: block; }
-
-    /* Home */
+    /* Home screen base styles */
     .home-screen {
-     background: linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 100%);
+      background: linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 100%);
       padding: 20px;
     }
+
+    /* Home screen layout only when active */
     .home-screen.active {
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
-    }
+}
+
     .game-title {
       font-size: 48px;
       font-weight: bold;
@@ -241,6 +250,12 @@
   </style>
 </head>
 <body>
+
+    body[data-started] {
+    outline: 4px solid rgba(72,187,120,0.7);
+    outline-offset: -4px;
+    } 
+
   <!-- Home Screen -->
   <div class="screen active home-screen" id="home-screen">
     <div class="game-title">🎯 Math Drop Challenge! 🎯</div>
@@ -400,6 +415,10 @@
   </div>
 
   <script>
+  
+    if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+  }
 
     // --- Game State ---
     let score = 0;
@@ -506,6 +525,8 @@
 
     // --- Start Game ---
     function startGame(gameType, level) {
+      console.log('startGame called with:', gameType, level);
+      document.body.setAttribute('data-started', Date.now()); // visual breadcrumb
       currentGameType = gameType;
       currentLevel = level;
       score = 0;
