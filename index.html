@@ -108,6 +108,13 @@
       transition: all 0.2s ease;
       font-family: inherit;
     }
+    .level-button, .leaderboard-open {
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+    user-select: none;
+    -webkit-user-select: none;
+}
     .level-button:hover {
       transform: translateY(-2px);
       box-shadow: 0 4px 15px rgba(0,0,0,0.2);
@@ -259,6 +266,17 @@
       outline: 4px solid rgba(72,187,120,0.7);
       outline-offset: -4px;
       }
+      /* shows when the script has loaded */
+    html[data-boot="ok"] body {
+    outline: 4px solid rgba(66,153,225,0.55);
+    outline-offset: -4px;
+}
+
+    /* shows when startGame() is called */
+      body[data-started] {
+      outline: 4px solid rgba(72,187,120,0.7);
+      outline-offset: -4px;
+}
 
   </style>
 </head>
@@ -429,6 +447,8 @@
 
 
   <script>
+
+
     // --- Boot beacon: proves the script is running ---
     document.documentElement.setAttribute('data-boot', 'ok');
     console.log('[MathDrop] Script loaded');
@@ -1048,27 +1068,59 @@
     }
     });
     // --- Fallback: rebind inline startGame(...) buttons programmatically ---
+// --- Enhanced iPad/iOS touch support ---
 (function rebindLevelButtons(){
-  // Find any buttons that use inline startGame('type', level)
-  const btns = document.querySelectorAll('button[onclick^="startGame("]');
+  const btns = document.querySelectorAll('button[onclick^="startGame("], button[onclick^="setDifficulty("], button[onclick^="openLeaderboard("]');
+  
   btns.forEach((btn) => {
     const txt = btn.getAttribute('onclick') || '';
-    const m = txt.match(/startGame\('([\w-]+)'\s*,\s*(\d+)\)/);
-    if (!m) return;
-    const type  = m[1];
-    const level = parseInt(m[2], 10);
-    // Add a robust JS listener that calls the real function
-    btn.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (typeof window.startGame === 'function') {
-        console.log('[MathDrop] Rebound click → startGame:', type, level);
+    
+    // Handle startGame buttons
+    const startMatch = txt.match(/startGame\('([\w-]+)'\s*,\s*(\d+)\)/);
+    if (startMatch) {
+      const type = startMatch[1];
+      const level = parseInt(startMatch[2], 10);
+      
+      // Add both touch and click handlers
+      const handler = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        console.log('[MathDrop] Button tapped:', type, level);
         window.startGame(type, level);
-      } else {
-        console.warn('[MathDrop] startGame not available on window');
-      }
-    }, { once: false });
+      };
+      
+      btn.addEventListener('touchend', handler, { passive: false });
+      btn.addEventListener('click', handler);
+      return;
+    }
+    
+    // Handle setDifficulty buttons
+    const diffMatch = txt.match(/setDifficulty\('(\w+)'\)/);
+    if (diffMatch) {
+      const diff = diffMatch[1];
+      const handler = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        window.setDifficulty(diff);
+      };
+      btn.addEventListener('touchend', handler, { passive: false });
+      btn.addEventListener('click', handler);
+      return;
+    }
+    
+    // Handle openLeaderboard buttons
+    if (txt.includes('openLeaderboard')) {
+      const handler = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        window.openLeaderboard();
+      };
+      btn.addEventListener('touchend', handler, { passive: false });
+      btn.addEventListener('click', handler);
+    }
   });
+  
+  console.log('[MathDrop] Touch handlers bound for', btns.length, 'buttons');
 })();
 
   </script>
