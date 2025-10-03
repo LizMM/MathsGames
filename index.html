@@ -400,6 +400,7 @@
   </div>
 
   <script>
+
     // --- Game State ---
     let score = 0;
     let currentQuestion = 1;
@@ -982,6 +983,29 @@
       renderLivesHearts(MAX_LIVES);
       updateLivesUI();
     })();
+
+  // Expose functions used by inline onclick/onkeydown handlers
+  window.startGame     = startGame;
+  window.goHome        = goHome;
+  window.playAgain     = playAgain;
+  window.toggleMute    = toggleMute;
+  window.handleAnswer  = handleAnswer;
+
+  // If you have these, expose them too:
+  if (typeof openLeaderboard !== 'undefined')  window.openLeaderboard  = openLeaderboard;
+  if (typeof closeLeaderboard !== 'undefined') window.closeLeaderboard = closeLeaderboard;
+  if (typeof setDifficulty !== 'undefined')    window.setDifficulty    = setDifficulty;
+
+  // Prevent Enter key from scrolling the page
+  window.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const a = document.activeElement;
+    if (a && a.classList && a.classList.contains('answer-input')) {
+      e.preventDefault();
+    }
+    }
+    });
+
   </script>
 </body>
 </html>
