@@ -247,6 +247,19 @@
       .game-title { font-size: 36px; }
       .categories-grid { grid-template-columns: 1fr; max-width: 400px; }
     }
+
+    /* shows when the script has loaded */
+    html[data-boot="ok"] body {
+     outline: 4px solid rgba(66,153,225,0.55);
+     outline-offset: -4px;
+      }
+
+    /* shows when startGame() is called */
+      body[data-started] {
+      outline: 4px solid rgba(72,187,120,0.7);
+      outline-offset: -4px;
+      }
+
   </style>
 </head>
 <body>
@@ -414,7 +427,13 @@
     </div>
   </div>
 
+
   <script>
+    // --- Boot beacon: proves the script is running ---
+    document.documentElement.setAttribute('data-boot', 'ok');
+    console.log('[MathDrop] Script loaded');
+    window.addEventListener('error', (e) => console.error('[MathDrop] JS error:', e.message));
+
   
     if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
@@ -525,6 +544,8 @@
 
     // --- Start Game ---
     function startGame(gameType, level) {
+      console.log('[MathDrop] startGame called with:', gameType, level);
+      document.body.setAttribute('data-started', Date.now());
       console.log('startGame called with:', gameType, level);
       document.body.setAttribute('data-started', Date.now()); // visual breadcrumb
       currentGameType = gameType;
@@ -1026,6 +1047,29 @@
     }
     }
     });
+    // --- Fallback: rebind inline startGame(...) buttons programmatically ---
+(function rebindLevelButtons(){
+  // Find any buttons that use inline startGame('type', level)
+  const btns = document.querySelectorAll('button[onclick^="startGame("]');
+  btns.forEach((btn) => {
+    const txt = btn.getAttribute('onclick') || '';
+    const m = txt.match(/startGame\('([\w-]+)'\s*,\s*(\d+)\)/);
+    if (!m) return;
+    const type  = m[1];
+    const level = parseInt(m[2], 10);
+    // Add a robust JS listener that calls the real function
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (typeof window.startGame === 'function') {
+        console.log('[MathDrop] Rebound click → startGame:', type, level);
+        window.startGame(type, level);
+      } else {
+        console.warn('[MathDrop] startGame not available on window');
+      }
+    }, { once: false });
+  });
+})();
 
   </script>
 </body>
