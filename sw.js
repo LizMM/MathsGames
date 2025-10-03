@@ -1,4 +1,4 @@
-const CACHE_NAME = "mathdrop-v4";
+const CACHE_NAME = "mathdrop-v5";
 const ASSETS = [
   "/",               // only works if served from site root
   "/index.html",
