@@ -948,97 +948,118 @@
       updateDifficultyUI(); renderLivesHearts(MAX_LIVES); updateLivesUI();
       console.log('[MathDrop] Binding button event listeners...');
       
-      // Number pad buttons
+      // Number pad buttons - use mousedown for better iOS compatibility
       document.querySelectorAll('.num-btn').forEach(btn => {
         const num = btn.getAttribute('data-num');
-        const handler = (e) => {
+        btn.onclick = function(e) {
           e.preventDefault();
+          e.stopPropagation();
           handleNumberInput(num);
+          return false;
         };
-        btn.addEventListener('click', handler);
-        btn.addEventListener('touchend', handler, { passive: false });
       });
       
       // Game start buttons
       document.querySelectorAll('button[data-game]').forEach(btn => {
         const gameType = btn.getAttribute('data-game');
         const level = parseInt(btn.getAttribute('data-level'), 10);
-        const handler = (e) => {
+        btn.onclick = function(e) {
           e.preventDefault();
-          console.log('[MathDrop] Button pressed:', gameType, level);
+          e.stopPropagation();
+          console.log('[MathDrop] Starting game:', gameType, level);
           startGame(gameType, level);
+          return false;
         };
-        btn.addEventListener('click', handler);
-        btn.addEventListener('touchend', handler, { passive: false });
       });
       
       // Difficulty buttons
       document.querySelectorAll('button[data-difficulty]').forEach(btn => {
         const diff = btn.getAttribute('data-difficulty');
-        const handler = (e) => { e.preventDefault(); setDifficulty(diff); };
-        btn.addEventListener('click', handler);
-        btn.addEventListener('touchend', handler, { passive: false });
+        btn.onclick = function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          setDifficulty(diff);
+          return false;
+        };
       });
       
       // Leaderboard open buttons
       ['lb-open-btn', 'game-lb-btn', 'gameover-lb-btn'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
-          const handler = (e) => { e.preventDefault(); openLeaderboard(); };
-          btn.addEventListener('click', handler);
-          btn.addEventListener('touchend', handler, { passive: false });
+          btn.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openLeaderboard();
+            return false;
+          };
         }
       });
       
       // Close leaderboard
       const closeLbBtn = document.getElementById('close-lb-btn');
       if (closeLbBtn) {
-        const handler = (e) => { e.preventDefault(); closeLeaderboard(); };
-        closeLbBtn.addEventListener('click', handler);
-        closeLbBtn.addEventListener('touchend', handler, { passive: false });
+        closeLbBtn.onclick = function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeLeaderboard();
+          return false;
+        };
       }
       
       // Home buttons
       ['game-home-btn', 'gameover-home-btn'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
-          const handler = (e) => { e.preventDefault(); goHome(); };
-          btn.addEventListener('click', handler);
-          btn.addEventListener('touchend', handler, { passive: false });
+          btn.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            goHome();
+            return false;
+          };
         }
       });
       
       // Play again button
       const playAgainBtn = document.getElementById('play-again-btn');
       if (playAgainBtn) {
-        const handler = (e) => { e.preventDefault(); playAgain(); };
-        playAgainBtn.addEventListener('click', handler);
-        playAgainBtn.addEventListener('touchend', handler, { passive: false });
+        playAgainBtn.onclick = function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          playAgain();
+          return false;
+        };
       }
       
       // Save score button
       const saveBtn = document.getElementById('save-score-btn');
       if (saveBtn) {
-        const handler = (e) => { e.preventDefault(); saveLeaderboardEntry(); };
-        saveBtn.addEventListener('click', handler);
-        saveBtn.addEventListener('touchend', handler, { passive: false });
+        saveBtn.onclick = function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          saveLeaderboardEntry();
+          return false;
+        };
       }
       
       // Mute button
       const muteBtn = document.getElementById('mute-btn');
       if (muteBtn) {
-        const handler = (e) => { e.preventDefault(); toggleMute(); };
-        muteBtn.addEventListener('click', handler);
-        muteBtn.addEventListener('touchend', handler, { passive: false });
+        muteBtn.onclick = function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleMute();
+          return false;
+        };
       }
       
       // Leaderboard selects
       const lbDiff = document.getElementById('lb-difficulty');
       const lbTopic = document.getElementById('lb-topic');
       const lbLevel = document.getElementById('lb-level');
-      if (lbDiff) lbDiff.addEventListener('change', refreshLeaderboard);
-      if (lbTopic) lbTopic.addEventListener('change', onLbTopicChange);
-      if (lbLevel) lbLevel.addEventListener('change', refreshLeaderboard);
+      if (lbDiff) lbDiff.onchange = refreshLeaderboard;
+      if (lbTopic) lbTopic.onchange = onLbTopicChange;
+      if (lbLevel) lbLevel.onchange = refreshLeaderboard;
       
       console.log('[MathDrop] All event listeners bound successfully!');
     })();
