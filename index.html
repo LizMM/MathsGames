@@ -251,7 +251,6 @@
 </head>
 <body>
 
-  <!-- Home Screen -->
   <div class="screen active home-screen" id="home-screen">
     <div class="game-title">🎯 Math Drop Challenge! 🎯</div>
     <div class="subhead">Pick a topic, set difficulty, and try to make the leaderboard!</div>
@@ -304,7 +303,6 @@
     </div>
   </div>
 
-  <!-- Game Screen -->
   <div class="screen game-container" id="game-screen" role="main" aria-live="off">
     <div class="ui-panel">
       <div class="ui-left">
@@ -354,7 +352,6 @@
     </div>
   </div>
 
-  <!-- Leaderboard Modal -->
   <div class="modal" id="leaderboard-modal" aria-modal="true" role="dialog">
     <div class="modal-card">
       <div class="modal-head">
@@ -410,35 +407,23 @@
       window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
     }
 
-    // Game State
-    let score = 0;
-    let currentQuestion = 1;
-    let gameActive = false;
-    let problems = [];
-    let currentGameType = '';
-    let currentLevel = 0;
-
+    let score = 0, currentQuestion = 1, gameActive = false, problems = [];
+    let currentGameType = '', currentLevel = 0;
     let difficulty = localStorage.getItem('mathdrop_difficulty') || 'medium';
+    
     const DIFF_SETTINGS = {
-      easy:   { lives: 5, timer: 15000, speedMul: 0.75, label: 'Easy' },
+      easy: { lives: 5, timer: 15000, speedMul: 0.75, label: 'Easy' },
       medium: { lives: 3, timer: 10000, speedMul: 1.00, label: 'Medium' },
-      hard:   { lives: 2, timer:  7000, speedMul: 1.50, label: 'Hard' }
+      hard: { lives: 2, timer: 7000, speedMul: 1.50, label: 'Hard' }
     };
+    
     let diffSpeedMul = DIFF_SETTINGS[difficulty].speedMul;
-
-    let lastFrameTime = 0;
-    let fallSpeedPxPerSec = 120;
+    let lastFrameTime = 0, fallSpeedPxPerSec = 120;
     let QUESTION_TIME_MS = DIFF_SETTINGS[difficulty].timer;
-    let questionStartMs = 0;
-    let roundStartMs = 0;
+    let questionStartMs = 0, roundStartMs = 0;
+    let MAX_LIVES = DIFF_SETTINGS[difficulty].lives, lives = MAX_LIVES;
+    let audioCtx = null, soundMuted = false, lastRoundTimeMs = 0;
 
-    let MAX_LIVES = DIFF_SETTINGS[difficulty].lives;
-    let lives = MAX_LIVES;
-
-    let audioCtx = null;
-    let soundMuted = false;
-
-    // Audio
     function initAudio() {
       if (!audioCtx) {
         try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
@@ -448,44 +433,137 @@
     
     function playBeep(freq=880, durationMs=120, type='sine', gain=0.08) {
       if (soundMuted || !audioCtx) return;
-      const input = problemDiv.querySelector('.answer-input');
-      
-      // Bind Enter key handler
-      input.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter') return;
-        event.preventDefault();
+      const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+      osc.type = type; osc.frequency.value = freq; g.gain.value = gain;
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start(); setTimeout(() => osc.stop(), durationMs);
+    }
+    
+    function correctSfx(){ playBeep(880,120,'sine',0.09); setTimeout(()=>playBeep(1320,100,'sine',0.07),90); }
+    function wrongSfx(){ playBeep(220,160,'square',0.09); }
+    function missSfx(){ playBeep(180,180,'triangle',0.08); }
 
+    function toggleMute(){
+      soundMuted = !soundMuted;
+      document.getElementById('mute-btn').textContent = soundMuted ? '🔇 Muted' : '🔊 Sound';
+      if (!soundMuted) initAudio();
+    }
+
+    function showScreen(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+    }
+
+    function setDifficulty(level){
+      console.log('[MathDrop] setDifficulty:', level);
+      difficulty = level;
+      localStorage.setItem('mathdrop_difficulty', level);
+      applyDifficultyToState();
+      updateDifficultyUI();
+    }
+
+    function applyDifficultyToState(){
+      const cfg = DIFF_SETTINGS[difficulty];
+      MAX_LIVES = cfg.lives; QUESTION_TIME_MS = cfg.timer; diffSpeedMul = cfg.speedMul;
+      document.getElementById('diff-label').textContent = cfg.label;
+      renderLivesHearts(MAX_LIVES); lives = MAX_LIVES; updateLivesUI();
+    }
+
+    function updateDifficultyUI(){
+      ['easy','medium','hard'].forEach(lvl=>{
+        const btn = document.getElementById('diff-' + lvl);
+        if (btn) btn.classList.toggle('selected', lvl === difficulty);
+      });
+      document.getElementById('diff-label').textContent = DIFF_SETTINGS[difficulty].label;
+    }
+
+    function renderLivesHearts(count){
+      document.getElementById('lives').innerHTML = Array.from({length:count}).map(()=>'<span class="heart">❤️</span>').join('');
+    }
+
+    function startGame(gameType, level) {
+      console.log('[MathDrop] startGame:', gameType, level);
+      currentGameType = gameType; currentLevel = level; score = 0; currentQuestion = 1;
+      applyDifficultyToState(); updateDifficultyUI();
+      problems.forEach(p => p.element.remove()); problems = [];
+
+      let topicText = '';
+      switch(gameType){
+        case 'addition': topicText = `Addition up to ${level}`; break;
+        case 'tables': topicText = `${level} Times Table`; break;
+        case 'subtraction': topicText = 'Subtraction Practice'; break;
+      }
+      document.getElementById('current-topic').textContent = topicText;
+      fallSpeedPxPerSec = getFallSpeed(gameType, level) * diffSpeedMul;
+
+      document.getElementById('game-over').style.display = 'none';
+      showScreen('game-screen'); updateUI(); updateHighScoreUI();
+      lastFrameTime = performance.now(); startQuestionTimer(); roundStartMs = performance.now();
+      gameActive = true; createProblemElement(); initAudio();
+    }
+
+    function getFallSpeed(type, level){
+      if (type === 'tables') return 140 + (level * 6);
+      if (type === 'addition') return 120 + Math.max(0, (level-20))*3;
+      if (type === 'subtraction') return 140;
+      return 120;
+    }
+
+    function generateProblem() {
+      let num1, num2, answer, question;
+      switch (currentGameType) {
+        case 'addition': {
+          const maxSum = currentLevel;
+          num1 = Math.floor(Math.random() * (maxSum - 1)) + 1;
+          num2 = Math.floor(Math.random() * (maxSum - num1)) + 1;
+          answer = num1 + num2; question = `${num1} + ${num2} = ?`; break;
+        }
+        case 'tables': {
+          num1 = currentLevel; num2 = Math.floor(Math.random() * 12) + 1;
+          answer = num1 * num2; question = `${num1} × ${num2} = ?`; break;
+        }
+        case 'subtraction': {
+          num1 = Math.floor(Math.random() * 40) + 10;
+          num2 = Math.floor(Math.random() * num1) + 1;
+          answer = num1 - num2; question = `${num1} - ${num2} = ?`; break;
+        }
+      }
+      return { question, answer };
+    }
+
+    function createProblemElement() {
+      if (!gameActive) return;
+      const problem = generateProblem();
+      const div = document.createElement('div');
+      div.className = 'math-problem';
+      div.innerHTML = `<div>${problem.question}</div>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" class="answer-input" placeholder="?" data-answer="${problem.answer}">`;
+      div.style.left = Math.random() * (window.innerWidth - 260) + 'px';
+      div.style.top = '90px';
+      document.getElementById('game-screen').appendChild(div);
+      problems.push({element: div, answer: problem.answer});
+
+      const input = div.querySelector('.answer-input');
+      input.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
         const val = input.value.trim();
         if (val === '') { input.focus(); return; }
-
         const userAnswer = Number(val);
         if (!Number.isFinite(userAnswer)) { input.focus(); input.select(); return; }
 
-        const correctAnswer = problem.answer;
-
-        if (userAnswer === correctAnswer) {
-          score++;
-          correctSfx();
-          problemDiv.classList.add('correct-animation');
-          setTimeout(() => {
-            removeProblem(problemDiv);
-            advanceQuestion();
-          }, 520);
+        if (userAnswer === problem.answer) {
+          score++; correctSfx();
+          div.classList.add('correct-animation');
+          setTimeout(() => { removeProblem(div); advanceQuestion(); }, 520);
         } else {
-          loseLife();
-          wrongSfx();
-          problemDiv.classList.add('wrong-animation');
-          setTimeout(() => {
-            removeProblem(problemDiv);
-            advanceQuestion();
-          }, 520);
+          loseLife(); wrongSfx();
+          div.classList.add('wrong-animation');
+          setTimeout(() => { removeProblem(div); advanceQuestion(); }, 520);
         }
         updateUI();
       });
-
-      setTimeout(() => {
-        input && input.focus({ preventScroll: true });
-      }, 0);
+      setTimeout(() => input && input.focus({ preventScroll: true }), 0);
     }
 
     function removeProblem(problemOrEl){
@@ -499,20 +577,13 @@
       if (!gameActive) return;
       currentQuestion++;
       if (currentQuestion <= 10 && lives > 0) {
-        setTimeout(() => {
-          startQuestionTimer();
-          createProblemElement();
-          updateUI();
-        }, 350);
-      } else {
-        endGame();
-      }
+        setTimeout(() => { startQuestionTimer(); createProblemElement(); updateUI(); }, 350);
+      } else { endGame(); }
     }
 
     function startQuestionTimer(){
       questionStartMs = performance.now();
-      const bar = document.getElementById('timer-bar');
-      bar.style.transform = 'scaleX(1)';
+      document.getElementById('timer-bar').style.transform = 'scaleX(1)';
     }
 
     function checkTimer(now){
@@ -520,15 +591,10 @@
       const elapsed = now - questionStartMs;
       const remaining = Math.max(0, QUESTION_TIME_MS - elapsed);
       const pct = remaining / QUESTION_TIME_MS;
-      const bar = document.getElementById('timer-bar');
-      bar.style.transform = `scaleX(${pct})`;
+      document.getElementById('timer-bar').style.transform = `scaleX(${pct})`;
       if (remaining <= 0) {
         const current = problems[problems.length - 1];
-        if (current) {
-          missSfx();
-          loseLife();
-          removeProblem(current);
-        }
+        if (current) { missSfx(); loseLife(); removeProblem(current); }
         advanceQuestion();
       }
     }
@@ -536,7 +602,7 @@
     function updateLivesUI(){
       const livesEl = document.getElementById('lives');
       const hearts = livesEl.querySelectorAll('.heart');
-      hearts.forEach((h, i) => { h.classList.toggle('lost', i >= lives); });
+      hearts.forEach((h, i) => h.classList.toggle('lost', i >= lives));
       livesEl.setAttribute('aria-label', `Lives: ${lives} of ${MAX_LIVES}`);
     }
 
@@ -559,23 +625,17 @@
       return best;
     }
     function updateHighScoreUI(){
-      const best = getHighScore();
-      document.getElementById('high-score').textContent = `Best: ${best}`;
+      document.getElementById('high-score').textContent = `Best: ${getHighScore()}`;
     }
 
-    function lbKey(topic, level, diff){
-      return `mathdrop_leaderboard_${topic}_${level}_${diff}`;
-    }
-
+    function lbKey(topic, level, diff){ return `mathdrop_leaderboard_${topic}_${level}_${diff}`; }
     function loadLeaderboard(topic, level, diff){
       const raw = localStorage.getItem(lbKey(topic, level, diff));
       try { return raw ? JSON.parse(raw) : []; } catch { return []; }
     }
-
     function saveLeaderboard(topic, level, diff, arr){
       localStorage.setItem(lbKey(topic, level, diff), JSON.stringify(arr));
     }
-
     function qualifiesForLeaderboard(topic, level, diff, scoreVal, timeMs){
       const list = loadLeaderboard(topic, level, diff);
       if (list.length < 10) return true;
@@ -583,7 +643,6 @@
       const worst = list[list.length - 1];
       return (scoreVal > worst.score) || (scoreVal === worst.score && timeMs < worst.timeMs);
     }
-
     function scoreSort(a, b){
       if (b.score !== a.score) return b.score - a.score;
       if (a.timeMs !== b.timeMs) return a.timeMs - b.timeMs;
@@ -594,13 +653,10 @@
       const diffSel = document.getElementById('lb-difficulty');
       const topicSel = document.getElementById('lb-topic');
       const levelSel = document.getElementById('lb-level');
-
       diffSel.value = difficulty || 'medium';
       topicSel.value = currentGameType || 'addition';
-
       populateLevelOptions(topicSel.value, levelSel);
       levelSel.value = String(currentLevel || defaultLevelFor(topicSel.value));
-
       refreshLeaderboard();
       document.getElementById('leaderboard-modal').classList.add('active');
     }
@@ -626,13 +682,9 @@
 
     function populateLevelOptions(topic, levelSelect){
       let options = [];
-      if (topic === 'addition'){
-        options = [20,30,40,50];
-      } else if (topic === 'tables'){
-        options = [2,3,4,5,6,7,8,9,10];
-      } else {
-        options = [50];
-      }
+      if (topic === 'addition') options = [20,30,40,50];
+      else if (topic === 'tables') options = [2,3,4,5,6,7,8,9,10];
+      else options = [50];
       levelSelect.innerHTML = options.map(v => `<option value="${v}">${topic==='addition' ? 'Up to ' + v : (topic==='tables' ? (v + '× table') : v)}</option>`).join('');
     }
 
@@ -642,124 +694,74 @@
       const levelSel = document.getElementById('lb-level');
       const tbody = document.getElementById('lb-body');
       const contextLine = document.getElementById('lb-context-line');
-
-      const diff = diffSel.value;
-      const topic = topicSel.value;
-      const level = parseInt(levelSel.value,10);
-
+      const diff = diffSel.value, topic = topicSel.value, level = parseInt(levelSel.value,10);
       const list = loadLeaderboard(topic, level, diff).sort(scoreSort).slice(0,10);
-
-      const topicText = topic==='addition' ? `Addition ≤${level}` :
-                        topic==='tables'   ? `${level}× table` :
-                                             `Subtraction`;
+      const topicText = topic==='addition' ? `Addition ≤${level}` : topic==='tables' ? `${level}× table` : `Subtraction`;
       contextLine.textContent = `${topicText} — ${DIFF_SETTINGS[diff].label}`;
-
       if (!list.length){
         tbody.innerHTML = `<tr><td colspan="5" class="empty">No scores yet — be the first!</td></tr>`;
         return;
       }
-
       tbody.innerHTML = list.map((row, i) => {
         const date = new Date(row.date || Date.now());
         const dateStr = date.toLocaleDateString(undefined, { year:'2-digit', month:'short', day:'2-digit' });
         const timeStr = formatMs(row.timeMs);
-        return `<tr>
-          <td>${i+1}</td>
-          <td>${escapeHtml(row.name || 'Player')}</td>
-          <td>${row.score}/10</td>
-          <td>${timeStr}</td>
-          <td>${dateStr}</td>
-        </tr>`;
+        return `<tr><td>${i+1}</td><td>${escapeHtml(row.name || 'Player')}</td><td>${row.score}/10</td><td>${timeStr}</td><td>${dateStr}</td></tr>`;
       }).join('');
     }
 
     function escapeHtml(str){
       return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
     }
-
     function formatMs(ms){
-      const s = Math.floor(ms / 1000);
-      const m = Math.floor(s / 60);
-      const sec = s % 60;
+      const s = Math.floor(ms / 1000), m = Math.floor(s / 60), sec = s % 60;
       return (m ? (m + 'm ') : '') + sec + 's';
     }
-
-    let lastRoundTimeMs = 0;
 
     function endGame() {
       if (!gameActive) return;
       gameActive = false;
-
-      const final = score;
-      const best = setHighScoreIfBest(final);
+      const final = score, best = setHighScoreIfBest(final);
       document.getElementById('final-score').textContent = final;
-      document.getElementById('final-best').textContent = best === final
-        ? `🏆 New Best for this mode!`
-        : `Best for this mode: ${best}`;
-
+      document.getElementById('final-best').textContent = best === final ? `🏆 New Best for this mode!` : `Best for this mode: ${best}`;
       let message = '';
-      if (lives <= 0) {
-        message = "You're out of lives—great effort! Try again and beat your best! 💪";
-      } else if (final === 10) {
-        message = "Perfect! You're a math superstar! ⭐";
-      } else if (final >= 8) {
-        message = "Excellent work! Keep it up! 🌟";
-      } else if (final >= 6) {
-        message = "Good job! Practice makes perfect! 👍";
-      } else {
-        message = "Keep trying! You're getting better! 💪";
-      }
+      if (lives <= 0) message = "You're out of lives—great effort! Try again and beat your best! 💪";
+      else if (final === 10) message = "Perfect! You're a math superstar! ⭐";
+      else if (final >= 8) message = "Excellent work! Keep it up! 🌟";
+      else if (final >= 6) message = "Good job! Practice makes perfect! 👍";
+      else message = "Keep trying! You're getting better! 💪";
       document.getElementById('performance-message').textContent = message;
-
       lastRoundTimeMs = Math.max(0, performance.now() - (roundStartMs || performance.now()));
-
       const ctxText = leaderboardContextText(currentGameType, currentLevel, difficulty);
       document.getElementById('lb-context').textContent = ctxText;
-
       if (qualifiesForLeaderboard(currentGameType, currentLevel, difficulty, final, lastRoundTimeMs)) {
         const prevName = localStorage.getItem('mathdrop_player_name') || '';
-        const input = document.getElementById('player-name');
-        input.value = prevName;
+        document.getElementById('player-name').value = prevName;
         document.getElementById('save-area').style.display = 'block';
       } else {
         document.getElementById('save-area').style.display = 'none';
       }
-
       document.getElementById('game-over').style.display = 'flex';
       updateHighScoreUI();
     }
 
     function leaderboardContextText(topic, level, diff){
-      const topicText = topic==='addition' ? `Addition ≤${level}` :
-                        topic==='tables'   ? `${level}× table` :
-                                             `Subtraction`;
+      const topicText = topic==='addition' ? `Addition ≤${level}` : topic==='tables' ? `${level}× table` : `Subtraction`;
       return `${topicText} — ${DIFF_SETTINGS[diff].label}`;
     }
 
     function saveLeaderboardEntry(){
       const name = (document.getElementById('player-name').value || 'Player').trim().slice(0,20);
       localStorage.setItem('mathdrop_player_name', name);
-
-      const topic = currentGameType;
-      const level = currentLevel;
-      const diff = difficulty;
-
-      const list = loadLeaderboard(topic, level, diff);
-      list.push({
-        name,
-        score,
-        timeMs: lastRoundTimeMs,
-        date: Date.now()
-      });
+      const list = loadLeaderboard(currentGameType, currentLevel, difficulty);
+      list.push({ name, score, timeMs: lastRoundTimeMs, date: Date.now() });
       const sorted = list.sort(scoreSort).slice(0,10);
-      saveLeaderboard(topic, level, diff, sorted);
-
+      saveLeaderboard(currentGameType, currentLevel, difficulty, sorted);
       document.getElementById('save-area').style.display = 'none';
       openLeaderboard();
     }
 
     function playAgain() { startGame(currentGameType, currentLevel); }
-
     function goHome() {
       gameActive = false;
       problems.forEach(p => p.element.remove());
@@ -772,159 +774,104 @@
       const currentTop = parseFloat(element.style.top) || 90;
       const deltaPx = (fallSpeedPxPerSec * deltaMs) / 1000;
       const newTop = currentTop + deltaPx;
-
       element.style.top = newTop + 'px';
-
       if (newTop > window.innerHeight - 110) {
-        removeProblem(element);
-        missSfx();
-        loseLife();
-        advanceQuestion();
+        removeProblem(element); missSfx(); loseLife(); advanceQuestion();
       }
     }
 
     function gameLoop(now = 0) {
       const deltaMs = Math.min(50, (now - lastFrameTime) || 16.7);
       lastFrameTime = now;
-
       if (gameActive) {
-        for (let i = problems.length - 1; i >= 0; i--) {
-          moveProblem(problems[i], deltaMs);
-        }
+        for (let i = problems.length - 1; i >= 0; i--) moveProblem(problems[i], deltaMs);
         checkTimer(now);
       }
       requestAnimationFrame(gameLoop);
     }
 
-    // Initialize
+    // Initialize and bind all events
     (function init(){
-      updateDifficultyUI();
-      renderLivesHearts(MAX_LIVES);
-      updateLivesUI();
-      
-      // Bind all game buttons using data attributes - NO inline onclick
+      updateDifficultyUI(); renderLivesHearts(MAX_LIVES); updateLivesUI();
       console.log('[MathDrop] Binding button event listeners...');
       
       // Game start buttons
       document.querySelectorAll('button[data-game]').forEach(btn => {
         const gameType = btn.getAttribute('data-game');
         const level = parseInt(btn.getAttribute('data-level'), 10);
-        
-        btn.addEventListener('click', (e) => {
+        const handler = (e) => {
           e.preventDefault();
-          console.log('[MathDrop] Click detected:', gameType, level);
+          console.log('[MathDrop] Button pressed:', gameType, level);
           startGame(gameType, level);
-        });
-        
-        // Add touchend for iOS
-        btn.addEventListener('touchend', (e) => {
-          e.preventDefault();
-          console.log('[MathDrop] Touch detected:', gameType, level);
-          startGame(gameType, level);
-        }, { passive: false });
+        };
+        btn.addEventListener('click', handler);
+        btn.addEventListener('touchend', handler, { passive: false });
       });
       
       // Difficulty buttons
       document.querySelectorAll('button[data-difficulty]').forEach(btn => {
         const diff = btn.getAttribute('data-difficulty');
-        
-        btn.addEventListener('click', (e) => {
-          e.preventDefault();
-          setDifficulty(diff);
-        });
-        
-        btn.addEventListener('touchend', (e) => {
-          e.preventDefault();
-          setDifficulty(diff);
-        }, { passive: false });
+        const handler = (e) => { e.preventDefault(); setDifficulty(diff); };
+        btn.addEventListener('click', handler);
+        btn.addEventListener('touchend', handler, { passive: false });
       });
       
       // Leaderboard open buttons
-      const lbBtns = ['lb-open-btn', 'game-lb-btn', 'gameover-lb-btn'];
-      lbBtns.forEach(id => {
+      ['lb-open-btn', 'game-lb-btn', 'gameover-lb-btn'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
-          btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            openLeaderboard();
-          });
-          btn.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            openLeaderboard();
-          }, { passive: false });
+          const handler = (e) => { e.preventDefault(); openLeaderboard(); };
+          btn.addEventListener('click', handler);
+          btn.addEventListener('touchend', handler, { passive: false });
         }
       });
       
-      // Close leaderboard button
+      // Close leaderboard
       const closeLbBtn = document.getElementById('close-lb-btn');
       if (closeLbBtn) {
-        closeLbBtn.addEventListener('click', closeLeaderboard);
-        closeLbBtn.addEventListener('touchend', (e) => {
-          e.preventDefault();
-          closeLeaderboard();
-        }, { passive: false });
+        const handler = (e) => { e.preventDefault(); closeLeaderboard(); };
+        closeLbBtn.addEventListener('click', handler);
+        closeLbBtn.addEventListener('touchend', handler, { passive: false });
       }
       
       // Home buttons
-      const homeBtns = ['game-home-btn', 'gameover-home-btn'];
-      homeBtns.forEach(id => {
+      ['game-home-btn', 'gameover-home-btn'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
-          btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            goHome();
-          });
-          btn.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            goHome();
-          }, { passive: false });
+          const handler = (e) => { e.preventDefault(); goHome(); };
+          btn.addEventListener('click', handler);
+          btn.addEventListener('touchend', handler, { passive: false });
         }
       });
       
       // Play again button
       const playAgainBtn = document.getElementById('play-again-btn');
       if (playAgainBtn) {
-        playAgainBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          playAgain();
-        });
-        playAgainBtn.addEventListener('touchend', (e) => {
-          e.preventDefault();
-          playAgain();
-        }, { passive: false });
+        const handler = (e) => { e.preventDefault(); playAgain(); };
+        playAgainBtn.addEventListener('click', handler);
+        playAgainBtn.addEventListener('touchend', handler, { passive: false });
       }
       
       // Save score button
       const saveBtn = document.getElementById('save-score-btn');
       if (saveBtn) {
-        saveBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          saveLeaderboardEntry();
-        });
-        saveBtn.addEventListener('touchend', (e) => {
-          e.preventDefault();
-          saveLeaderboardEntry();
-        }, { passive: false });
+        const handler = (e) => { e.preventDefault(); saveLeaderboardEntry(); };
+        saveBtn.addEventListener('click', handler);
+        saveBtn.addEventListener('touchend', handler, { passive: false });
       }
       
       // Mute button
       const muteBtn = document.getElementById('mute-btn');
       if (muteBtn) {
-        muteBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          toggleMute();
-        });
-        muteBtn.addEventListener('touchend', (e) => {
-          e.preventDefault();
-          toggleMute();
-        }, { passive: false });
+        const handler = (e) => { e.preventDefault(); toggleMute(); };
+        muteBtn.addEventListener('click', handler);
+        muteBtn.addEventListener('touchend', handler, { passive: false });
       }
       
       // Leaderboard selects
       const lbDiff = document.getElementById('lb-difficulty');
       const lbTopic = document.getElementById('lb-topic');
       const lbLevel = document.getElementById('lb-level');
-      
       if (lbDiff) lbDiff.addEventListener('change', refreshLeaderboard);
       if (lbTopic) lbTopic.addEventListener('change', onLbTopicChange);
       if (lbLevel) lbLevel.addEventListener('change', refreshLeaderboard);
@@ -932,162 +879,8 @@
       console.log('[MathDrop] All event listeners bound successfully!');
     })();
 
-    // Start game loop
     requestAnimationFrame(gameLoop);
-
-    console.log('[MathDrop] Script fully loaded and ready!'); osc = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      g.gain.value = gain;
-      osc.connect(g).connect(audioCtx.destination);
-      osc.start();
-      setTimeout(() => { osc.stop(); }, durationMs);
-    }
-    
-    function correctSfx(){ playBeep(880,120,'sine',0.09); setTimeout(()=>playBeep(1320,100,'sine',0.07),90); }
-    function wrongSfx(){ playBeep(220,160,'square',0.09); }
-    function missSfx(){ playBeep(180,180,'triangle',0.08); }
-
-    function toggleMute(){
-      soundMuted = !soundMuted;
-      const btn = document.getElementById('mute-btn');
-      btn.textContent = soundMuted ? '🔇 Muted' : '🔊 Sound';
-      btn.setAttribute('aria-pressed', String(!soundMuted));
-      if (!soundMuted) initAudio();
-    }
-
-    function showScreen(screenId) {
-      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-      document.getElementById(screenId).classList.add('active');
-    }
-
-    function setDifficulty(level){
-      console.log('[MathDrop] setDifficulty:', level);
-      difficulty = level;
-      localStorage.setItem('mathdrop_difficulty', level);
-      applyDifficultyToState();
-      updateDifficultyUI();
-    }
-
-    function applyDifficultyToState(){
-      const cfg = DIFF_SETTINGS[difficulty];
-      MAX_LIVES = cfg.lives;
-      QUESTION_TIME_MS = cfg.timer;
-      diffSpeedMul = cfg.speedMul;
-      document.getElementById('diff-label').textContent = cfg.label;
-      renderLivesHearts(MAX_LIVES);
-      lives = MAX_LIVES;
-      updateLivesUI();
-    }
-
-    function updateDifficultyUI(){
-      ['easy','medium','hard'].forEach(lvl=>{
-        const btn = document.getElementById('diff-' + lvl);
-        if (!btn) return;
-        btn.classList.toggle('selected', lvl === difficulty);
-      });
-      document.getElementById('diff-label').textContent = DIFF_SETTINGS[difficulty].label;
-    }
-
-    function renderLivesHearts(count){
-      const livesEl = document.getElementById('lives');
-      livesEl.innerHTML = Array.from({length: count}).map(()=>'<span class="heart">❤️</span>').join('');
-    }
-
-    function startGame(gameType, level) {
-      console.log('[MathDrop] startGame:', gameType, level);
-      currentGameType = gameType;
-      currentLevel = level;
-      score = 0;
-      currentQuestion = 1;
-
-      applyDifficultyToState();
-      updateDifficultyUI();
-
-      problems.forEach(p => p.element.remove());
-      problems = [];
-
-      let topicText = '';
-      switch(gameType){
-        case 'addition': topicText = `Addition up to ${level}`; break;
-        case 'tables': topicText = `${level} Times Table`; break;
-        case 'subtraction': topicText = 'Subtraction Practice'; break;
-      }
-      document.getElementById('current-topic').textContent = topicText;
-
-      fallSpeedPxPerSec = getFallSpeed(gameType, level) * diffSpeedMul;
-
-      document.getElementById('game-over').style.display = 'none';
-      showScreen('game-screen');
-      updateUI();
-      updateHighScoreUI();
-
-      lastFrameTime = performance.now();
-      startQuestionTimer();
-      roundStartMs = performance.now();
-
-      gameActive = true;
-      createProblemElement();
-      initAudio();
-    }
-
-    function getFallSpeed(type, level){
-      if (type === 'tables') return 140 + (level * 6);
-      if (type === 'addition') return 120 + Math.max(0, (level-20))*3;
-      if (type === 'subtraction') return 140;
-      return 120;
-    }
-
-    function generateProblem() {
-      let num1, num2, answer, question;
-
-      switch (currentGameType) {
-        case 'addition': {
-          const maxSum = currentLevel;
-          num1 = Math.floor(Math.random() * (maxSum - 1)) + 1;
-          const maxAdd2 = maxSum - num1;
-          num2 = Math.floor(Math.random() * maxAdd2) + 1;
-          answer = num1 + num2;
-          question = `${num1} + ${num2} = ?`;
-          break;
-        }
-        case 'tables': {
-          num1 = currentLevel;
-          num2 = Math.floor(Math.random() * 12) + 1;
-          answer = num1 * num2;
-          question = `${num1} × ${num2} = ?`;
-          break;
-        }
-        case 'subtraction': {
-          num1 = Math.floor(Math.random() * 40) + 10;
-          num2 = Math.floor(Math.random() * num1) + 1;
-          answer = num1 - num2;
-          question = `${num1} - ${num2} = ?`;
-          break;
-        }
-      }
-      return { question, answer };
-    }
-
-    function createProblemElement() {
-      if (!gameActive) return;
-
-      const problem = generateProblem();
-      const problemDiv = document.createElement('div');
-      problemDiv.className = 'math-problem';
-      problemDiv.innerHTML = `
-        <div>${problem.question}</div>
-        <input type="text" inputmode="numeric" pattern="[0-9]*"
-          class="answer-input" placeholder="?"
-          data-answer="${problem.answer}"
-          aria-label="Your answer">
-      `;
-
-      problemDiv.style.left = Math.random() * (window.innerWidth - 260) + 'px';
-      problemDiv.style.top = '90px';
-
-      document.getElementById('game-screen').appendChild(problemDiv);
-      problems.push({element: problemDiv, answer: problem.answer});
-
-      const
+    console.log('[MathDrop] Script fully loaded and ready!');
+  </script>
+</body>
+</html>
